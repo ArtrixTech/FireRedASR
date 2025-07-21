@@ -12,11 +12,11 @@ from fireredasr.tokenizer.llm_tokenizer import LlmTokenizerWrapper
 
 class FireRedAsr:
     @classmethod
-    def from_pretrained(cls, asr_type, model_dir):
+    def from_pretrained(cls, asr_type, model_dir, feat_num_workers=4):
         assert asr_type in ["aed", "llm"]
 
         cmvn_path = os.path.join(model_dir, "cmvn.ark")
-        feat_extractor = ASRFeatExtractor(cmvn_path)
+        feat_extractor = ASRFeatExtractor(cmvn_path, num_workers=feat_num_workers)
 
         if asr_type == "aed":
             model_path = os.path.join(model_dir, "model.pth.tar")

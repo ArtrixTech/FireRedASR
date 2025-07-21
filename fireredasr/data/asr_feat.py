@@ -5,26 +5,39 @@ import kaldiio
 import kaldi_native_fbank as knf
 import numpy as np
 import torch
+from concurrent.futures import ThreadPoolExecutor
 
 
 class ASRFeatExtractor:
-    def __init__(self, kaldi_cmvn_file):
+    def __init__(self, kaldi_cmvn_file, num_workers=4):
         self.cmvn = CMVN(kaldi_cmvn_file) if kaldi_cmvn_file != "" else None
         self.fbank = KaldifeatFbank(num_mel_bins=80, frame_length=25,
             frame_shift=10, dither=0.0)
+        self.num_workers = num_workers
+
+    def _process_one_wav(self, wav_path):
+        """Processes a single WAV file to extract fbank features."""
+        sample_rate, wav_np = kaldiio.load_mat(wav_path)
+        dur = wav_np.shape[0] / sample_rate
+        fbank = self.fbank((sample_rate, wav_np))
+        if self.cmvn is not None:
+            fbank = self.cmvn(fbank)
+        fbank = torch.from_numpy(fbank).float()
+        return fbank, dur
 
     def __call__(self, wav_paths):
         feats = []
         durs = []
-        for wav_path in wav_paths:
-            sample_rate, wav_np = kaldiio.load_mat(wav_path)
-            dur = wav_np.shape[0] / sample_rate
-            fbank = self.fbank((sample_rate, wav_np))
-            if self.cmvn is not None:
-                fbank = self.cmvn(fbank)
-            fbank = torch.from_numpy(fbank).float()
+
+        # Use ThreadPoolExecutor for parallel processing
+        with ThreadPoolExecutor(max_workers=self.num_workers) as executor:
+            # map() returns results in the same order as inputs
+            results = executor.map(self._process_one_wav, wav_paths)
+
+        for fbank, dur in results:
             feats.append(fbank)
             durs.append(dur)
+            
         lengths = torch.tensor([feat.size(0) for feat in feats]).long()
         feats_pad = self.pad_feat(feats, 0.0)
         return feats_pad, lengths, durs
